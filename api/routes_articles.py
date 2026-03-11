@@ -150,11 +150,16 @@ def delete_article(article_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{article_id}/publish")
 def publish_article(article_id: int, db: Session = Depends(get_db)):
-    """Publish article to WordPress. Implemented in Phase 4 (WordPress integration)."""
+    """Publish article to WordPress."""
+    from services.wordpress_service import publish_article as wp_publish, WordPressError
+
     article = db.get(Article, article_id)
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
-    raise HTTPException(
-        status_code=501,
-        detail="WordPress publish will be implemented in Phase 4",
-    )
+    try:
+        result = wp_publish(article_id, db)
+    except WordPressError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result.get("error", "Publish failed"))
+    return {"published": True, "wordpress_id": result.get("wordpress_id")}

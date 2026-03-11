@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
+from scheduler.publisher import get_scheduler, shutdown_scheduler
 from api.routes_articles import router as articles_router
 from api.routes_keywords import router as keywords_router
 from api.routes_scheduler import router as scheduler_router
@@ -18,8 +19,9 @@ from api.routes_settings import router as settings_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    get_scheduler()
     yield
-    # teardown if needed
+    shutdown_scheduler()
 
 
 app = FastAPI(
