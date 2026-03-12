@@ -10,7 +10,7 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     ports:
-      - "8000:8000"
+      - "8870:8000"
     env_file: .env
     environment:
       - DATABASE_URL=sqlite:////data/content.db
@@ -29,11 +29,11 @@ services:
       context: .
       dockerfile: Dockerfile.dashboard
     ports:
-      - "8501:8501"
+      - "8871:8501"
     env_file: .env
     environment:
       # When behind nginx, set BACKEND_URL to your API domain (e.g. https://api.yourdomain.com)
-      - BACKEND_URL=http://autocontent_ai_backend:8000
+      - BACKEND_URL=https://autocontent_ai_backend.system2030.com
     depends_on:
       autocontent_ai_backend:
         condition: service_healthy
