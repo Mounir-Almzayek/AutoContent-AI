@@ -70,7 +70,24 @@ streamlit run dashboard/streamlit_app.py
 - API: http://localhost:8000 (docs: http://localhost:8000/docs)  
 - Dashboard: http://localhost:8501  
 
-### 3. Run with Docker
+### 3. Before deployment (security audit)
+
+Run a dependency audit before every deploy (and regularly, e.g. daily). If any vulnerabilities are reported, update the affected packages before deploying.
+
+```bash
+# Option 1: script (from project root)
+./scripts/audit.sh          # Linux/macOS
+# or
+pwsh -File scripts/audit.ps1   # Windows PowerShell
+
+# Option 2: manual
+pip install pip-audit
+pip-audit -r requirements.txt
+```
+
+Exit code is non-zero when vulnerabilities are found (so you can use this in CI or stop the deploy). Fix issues then re-run before going live.
+
+### 4. Run with Docker
 
 Create `.env` from `.env.example` first, then:
 
@@ -83,7 +100,7 @@ docker-compose up --build
 
 Containers and volumes use unique names (`autocontent_ai_backend`, `autocontent_ai_dashboard`, `autocontent_ai_backend_data`) to avoid conflicts with other deployments.
 
-### 4. Deployment behind nginx (two domains)
+### 5. Deployment behind nginx (two domains)
 
 If you expose the app via nginx (no direct port access), use **one domain for the API** and **one for the Dashboard**. Example config: **[nginx/autocontent-ai.conf.example](nginx/autocontent-ai.conf.example)**. See [nginx/README.md](nginx/README.md) for setup steps.
 
