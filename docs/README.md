@@ -18,6 +18,7 @@ Technical documentation and specs. Read in order for a full overview or jump to 
 | **Integration** | [openrouter](integration/openrouter.md) | OpenRouter and token tracking |
 | | [wordpress](integration/wordpress.md) | WordPress REST API integration |
 | | [scheduler](integration/scheduler.md) | APScheduler, rules, and calendar |
+| **Setup** | [WORDPRESS_SETUP](WORDPRESS_SETUP.md) | **For WordPress team:** what to configure and provide (URL, user, Application Password) |
 
 ---
 

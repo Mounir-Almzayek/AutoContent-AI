@@ -47,7 +47,7 @@ Copy `.env.example` to `.env` and set:
 
 - `OPENROUTER_API_KEY` — required for AI generation  
 - `BACKEND_URL` — e.g. `http://localhost:8000` (for the dashboard)  
-- Optional: `WORDPRESS_*` for publishing to WordPress  
+- Optional: `WORDPRESS_*` for publishing to WordPress (see [docs/WORDPRESS_SETUP.md](docs/WORDPRESS_SETUP.md) for the WordPress team)  
 
 ### 2. Install and run (local)
 
