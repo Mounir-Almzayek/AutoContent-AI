@@ -81,7 +81,11 @@ docker-compose up --build
 - Dashboard: http://localhost:8501  
 - API: http://localhost:8000  
 
-The dashboard container uses `BACKEND_URL=http://backend:8000` so it can reach the API inside the stack.
+Containers and volumes use unique names (`autocontent_ai_backend`, `autocontent_ai_dashboard`, `autocontent_ai_backend_data`) to avoid conflicts with other deployments.
+
+### 4. Deployment behind nginx (two domains)
+
+If you expose the app via nginx (no direct port access), use **one domain for the API** and **one for the Dashboard**. Example config: **[nginx/autocontent-ai.conf.example](nginx/autocontent-ai.conf.example)**. See [nginx/README.md](nginx/README.md) for setup steps.
 
 ## Documentation
 

@@ -8,7 +8,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Streamlit on 8501; BACKEND_URL must point to backend service (e.g. http://backend:8000)
+# Run as non-root user with limited permissions
+RUN addgroup --system --gid 1000 appgroup \
+    && adduser --system --uid 1000 --gid 1000 --no-create-home appuser \
+    && chown -R appuser:appgroup /app
+
+USER appuser
+
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8501
 

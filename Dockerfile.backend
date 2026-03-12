@@ -8,8 +8,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Default: run on port 8000; override with env if needed
+# Non-root user (entrypoint runs as root to fix /data permissions, then exec as appuser)
+RUN addgroup --system --gid 1000 appgroup \
+    && adduser --system --uid 1000 --gid 1000 --no-create-home appuser \
+    && chown -R appuser:appgroup /app
+
+COPY docker-entrypoint.backend.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
