@@ -1,12 +1,15 @@
 """
-APScheduler: schedule publish and content generation jobs.
-See docs/10_SCHEDULER_SPEC.md.
+APScheduler: schedule publish, one-time generation, and recurring generation jobs.
+See docs/10_SCHEDULER_SPEC.md and docs/12_CONTENT_CALENDAR_DESIGN.md.
 """
+import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +92,77 @@ def _run_generation(keyword_id: int) -> None:
         db.close()
 
 
+def _run_recurring_generation(rule_id: int) -> None:
+    """Job: run recurring generation for a rule (N articles from keyword queue)."""
+    from app.database import SessionLocal
+    from sqlalchemy import select
+    from models.keyword import Keyword
+    from models.article import Article
+    from models.schedule_rule import ScheduleRule
+    from graphs.content_generation_graph import run_content_generation
+    from services.token_tracker import TokenTracker
+    from services.wordpress_service import publish_article as wp_publish
+
+    db = SessionLocal()
+    try:
+        rule = db.get(ScheduleRule, rule_id)
+        if not rule or not rule.enabled:
+            return
+        n = rule.articles_per_run
+        if rule.keyword_filter == "ids" and rule.keyword_ids:
+            try:
+                ids = json.loads(rule.keyword_ids) if rule.keyword_ids.strip().startswith("[") else [int(x.strip()) for x in rule.keyword_ids.split(",") if x.strip()]
+            except Exception:
+                ids = []
+            kw_query = select(Keyword).where(Keyword.id.in_(ids), Keyword.keyword.isnot(None)).limit(n)
+        else:
+            kw_query = select(Keyword).where(Keyword.status == "pending").order_by(Keyword.created_at).limit(n)
+        keywords = list(db.execute(kw_query).scalars().all())
+        existing_q = (
+            select(Article.id, Article.title, Article.content)
+            .where(Article.status.in_(["ready", "published"]))
+            .order_by(Article.updated_at.desc())
+            .limit(100)
+        )
+        existing_rows = db.execute(existing_q).all()
+        existing_articles = [{"id": r.id, "title": r.title, "content_snippet": (r.content or "")[:500]} for r in existing_rows]
+        generated = 0
+        for kw in keywords:
+            keyword = (kw.keyword or "").strip()
+            if not keyword:
+                continue
+            state = run_content_generation(
+                keyword,
+                language=rule.language,
+                word_count_target=rule.word_count_target,
+                tone=rule.tone,
+                keyword_id=kw.id,
+                existing_articles=existing_articles,
+                db_session=db,
+            )
+            last_usage = state.get("last_usage")
+            if last_usage and isinstance(last_usage, dict):
+                tracker = TokenTracker(db)
+                tracker.log(model="openai/gpt-4o", tokens_prompt=last_usage.get("prompt_tokens", 0), tokens_completion=last_usage.get("completion_tokens", 0), article_id=state.get("article_id"), cost=last_usage.get("total_cost"))
+            aid = state.get("article_id")
+            if aid:
+                generated += 1
+                existing_articles.insert(0, {"id": aid, "title": "", "content_snippet": ""})
+                if rule.publish_behavior == "immediate":
+                    wp_publish(aid, db)
+                elif rule.publish_behavior == "delay" and rule.publish_delay_minutes:
+                    run_at = datetime.now(timezone.utc) + timedelta(minutes=rule.publish_delay_minutes)
+                    schedule_publish(aid, run_at)
+        rule.last_run_at = datetime.now(timezone.utc)
+        rule.last_articles_count = generated
+        db.commit()
+        logger.info("Recurring rule %s: generated %s articles", rule_id, generated)
+    except Exception as e:
+        logger.exception("Recurring generation error: rule_id=%s %s", rule_id, e)
+    finally:
+        db.close()
+
+
 def get_scheduler() -> BackgroundScheduler:
     """Return the global scheduler instance; create and start if needed."""
     global _scheduler
@@ -140,9 +214,40 @@ def list_jobs() -> list[dict[str, Any]]:
             out.append({"id": job.id, "type": "publish", "article_id": args[0], "run_at": run_at, "next_run_time": next_run})
         elif job.id and job.id.startswith("gen_") and len(args) >= 1:
             out.append({"id": job.id, "type": "generate", "keyword_id": args[0], "run_at": run_at, "next_run_time": next_run})
+        elif job.id and job.id.startswith("recurring_") and len(args) >= 1:
+            out.append({"id": job.id, "type": "recurring", "rule_id": args[0], "run_at": run_at, "next_run_time": next_run})
         else:
             out.append({"id": job.id, "type": "unknown", "run_at": run_at, "next_run_time": next_run})
     return out
+
+
+def add_rule_job(rule: Any) -> str:
+    """Add or replace a recurring job for the given rule (ScheduleRule model). Returns job_id."""
+    s = get_scheduler()
+    job_id = f"recurring_{rule.id}"
+    try:
+        s.remove_job(job_id)
+    except Exception:
+        pass
+    if rule.trigger_type == "interval" and rule.interval_minutes:
+        trigger = IntervalTrigger(minutes=rule.interval_minutes)
+    elif rule.trigger_type == "cron" and rule.cron_expression:
+        trigger = CronTrigger.from_crontab(rule.cron_expression.strip())
+    else:
+        raise ValueError("Rule must have interval_minutes or cron_expression")
+    job = s.add_job(_run_recurring_generation, trigger, args=[rule.id], id=job_id)
+    return job.id
+
+
+def remove_rule_job(rule_id: int) -> bool:
+    """Remove recurring job for rule_id."""
+    s = get_scheduler()
+    job_id = f"recurring_{rule_id}"
+    try:
+        s.remove_job(job_id)
+        return True
+    except Exception:
+        return False
 
 
 def get_stats() -> dict[str, Any]:

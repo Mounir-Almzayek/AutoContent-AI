@@ -7,8 +7,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import init_db
-from scheduler.publisher import get_scheduler, shutdown_scheduler
+from sqlalchemy import select
+
+from app.database import init_db, SessionLocal
+from models.schedule_rule import ScheduleRule
+from scheduler.publisher import add_rule_job, get_scheduler, shutdown_scheduler
 from api.routes_articles import router as articles_router
 from api.routes_keywords import router as keywords_router
 from api.routes_scheduler import router as scheduler_router
@@ -20,6 +23,13 @@ from api.routes_settings import router as settings_router
 async def lifespan(app: FastAPI):
     init_db()
     get_scheduler()
+    # Re-register recurring rules so they run after server restart
+    db = SessionLocal()
+    try:
+        for rule in db.execute(select(ScheduleRule).where(ScheduleRule.enabled.is_(True))).scalars().all():
+            add_rule_job(rule)
+    finally:
+        db.close()
     yield
     shutdown_scheduler()
 

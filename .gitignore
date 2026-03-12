@@ -1,0 +1,65 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+content.db
+
+# IDE & OS
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs & cache
+*.log
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+.cache
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Optional: MCP descriptors (uncomment if generated)
+# mcps/

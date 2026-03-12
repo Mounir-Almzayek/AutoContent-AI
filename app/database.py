@@ -15,6 +15,7 @@ from models.base import Base
 import models.article  # noqa: F401
 import models.keyword  # noqa: F401
 import models.token_usage  # noqa: F401
+import models.schedule_rule  # noqa: F401
 
 _settings = get_settings()
 
