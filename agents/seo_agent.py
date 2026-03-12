@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any, Optional
 
+from services.agent_settings import get_model_for_agent
 from services.openrouter_service import OpenRouterService, OpenRouterError, get_openrouter_service
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ def run_seo_optimizer(
                 {"role": "system", "content": SEO_SYSTEM},
                 {"role": "user", "content": user_msg},
             ],
+            model=get_model_for_agent("seo_agent"),
         )
     except OpenRouterError as e:
         logger.exception("SEO agent OpenRouter error: %s", e)

@@ -20,17 +20,20 @@ router = APIRouter(prefix="/articles", tags=["Articles"])
 @router.get("", response_model=dict)
 def list_articles(
     status: Optional[str] = Query(None, description="Filter by status"),
+    q: Optional[str] = Query(None, description="Search by article title (case-insensitive)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    """List articles with optional status filter and pagination."""
+    """List articles with optional status filter, search by title, and pagination."""
     base = select(Article)
     if status:
         base = base.where(Article.status == status)
+    if q and q.strip():
+        base = base.where(Article.title.ilike(f"%{q.strip()}%"))
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar() or 0
-    q = base.order_by(Article.created_at.desc()).offset(skip).limit(limit)
-    rows = db.execute(q).scalars().all()
+    query = base.order_by(Article.created_at.desc()).offset(skip).limit(limit)
+    rows = db.execute(query).scalars().all()
     return {"items": [ArticleResponse.model_validate(r) for r in rows], "total": total}
 
 

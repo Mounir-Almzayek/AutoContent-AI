@@ -38,9 +38,33 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def _migrate_schedule_rules(db_engine) -> None:
+    """Add new columns to schedule_rules if missing (rule_type, niche, trend_*, last_keywords_count)."""
+    if "sqlite" not in str(db_engine.url):
+        return
+    from sqlalchemy import text
+    with db_engine.connect() as conn:
+        info = conn.execute(text("SELECT name FROM pragma_table_info('schedule_rules')")).fetchall()
+        existing = {row[0] for row in info} if info else set()
+        for col, sql in [
+            ("rule_type", "ALTER TABLE schedule_rules ADD COLUMN rule_type VARCHAR(32) DEFAULT 'articles'"),
+            ("niche", "ALTER TABLE schedule_rules ADD COLUMN niche VARCHAR(256)"),
+            ("trend_keywords_count", "ALTER TABLE schedule_rules ADD COLUMN trend_keywords_count INTEGER"),
+            ("trend_time_window", "ALTER TABLE schedule_rules ADD COLUMN trend_time_window VARCHAR(64)"),
+            ("last_keywords_count", "ALTER TABLE schedule_rules ADD COLUMN last_keywords_count INTEGER"),
+        ]:
+            if col not in existing:
+                try:
+                    conn.execute(text(sql))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+
+
 def init_db() -> None:
     """Create all tables. Safe to call on startup (idempotent for existing tables)."""
     Base.metadata.create_all(bind=_engine)
+    _migrate_schedule_rules(_engine)
 
 
 def get_engine():

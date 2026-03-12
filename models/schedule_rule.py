@@ -16,18 +16,25 @@ class ScheduleRule(SQLBase):
     __tablename__ = "schedule_rules"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    rule_type: Mapped[str] = mapped_column(String(32), default="articles", nullable=False)  # keywords | articles
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     trigger_type: Mapped[str] = mapped_column(String(32), nullable=False)  # interval | cron
     interval_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     cron_expression: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # --- Article rule fields ---
     articles_per_run: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     keyword_filter: Mapped[str] = mapped_column(String(32), default="all_pending", nullable=False)  # all_pending | ids
-    keyword_ids: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array or comma-separated
+    keyword_ids: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     language: Mapped[str] = mapped_column(String(16), default="en", nullable=False)
     tone: Mapped[str] = mapped_column(String(32), default="professional", nullable=False)
     word_count_target: Mapped[int] = mapped_column(Integer, default=1500, nullable=False)
-    publish_behavior: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)  # draft | immediate | delay
+    publish_behavior: Mapped[str] = mapped_column(String(32), default="immediate", nullable=False)  # draft | immediate | delay
     publish_delay_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # --- Keyword (trend) rule fields ---
+    niche: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    trend_keywords_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    trend_time_window: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    last_keywords_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_articles_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -36,6 +43,7 @@ class ScheduleRule(SQLBase):
 
 
 class ScheduleRuleBase(BaseModel):
+    rule_type: str = Field("articles", pattern="^(keywords|articles)$")
     name: str = Field(..., min_length=1, max_length=256)
     trigger_type: str = Field(..., pattern="^(interval|cron)$")
     interval_minutes: Optional[int] = Field(None, ge=1, le=525600)
@@ -46,8 +54,11 @@ class ScheduleRuleBase(BaseModel):
     language: str = Field("en", max_length=16)
     tone: str = Field("professional", max_length=32)
     word_count_target: int = Field(1500, ge=300, le=20000)
-    publish_behavior: str = Field("draft", pattern="^(draft|immediate|delay)$")
+    publish_behavior: str = Field("immediate", pattern="^(draft|immediate|delay)$")
     publish_delay_minutes: Optional[int] = Field(None, ge=0, le=10080)
+    niche: Optional[str] = Field(None, max_length=256)
+    trend_keywords_count: Optional[int] = Field(None, ge=1, le=20)
+    trend_time_window: Optional[str] = Field(None, max_length=64)
     enabled: bool = True
 
 
@@ -56,6 +67,7 @@ class ScheduleRuleCreate(ScheduleRuleBase):
 
 
 class ScheduleRuleUpdate(BaseModel):
+    rule_type: Optional[str] = Field(None, pattern="^(keywords|articles)$")
     name: Optional[str] = Field(None, min_length=1, max_length=256)
     trigger_type: Optional[str] = Field(None, pattern="^(interval|cron)$")
     interval_minutes: Optional[int] = Field(None, ge=1, le=525600)
@@ -68,6 +80,9 @@ class ScheduleRuleUpdate(BaseModel):
     word_count_target: Optional[int] = Field(None, ge=300, le=20000)
     publish_behavior: Optional[str] = Field(None, pattern="^(draft|immediate|delay)$")
     publish_delay_minutes: Optional[int] = Field(None, ge=0, le=10080)
+    niche: Optional[str] = Field(None, max_length=256)
+    trend_keywords_count: Optional[int] = Field(None, ge=1, le=20)
+    trend_time_window: Optional[str] = Field(None, max_length=64)
     enabled: Optional[bool] = None
 
 
@@ -75,6 +90,7 @@ class ScheduleRuleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    rule_type: str = "articles"
     name: str
     trigger_type: str
     interval_minutes: Optional[int] = None
@@ -87,6 +103,10 @@ class ScheduleRuleResponse(BaseModel):
     word_count_target: int
     publish_behavior: str
     publish_delay_minutes: Optional[int] = None
+    niche: Optional[str] = None
+    trend_keywords_count: Optional[int] = None
+    trend_time_window: Optional[str] = None
+    last_keywords_count: Optional[int] = None
     enabled: bool
     last_run_at: Optional[datetime] = None
     last_articles_count: Optional[int] = None

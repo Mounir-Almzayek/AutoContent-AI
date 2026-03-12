@@ -1,9 +1,11 @@
 """
 OpenRouter API client for LLM chat completions.
 Returns content and usage dict for token tracking.
+Retries on 429 (rate limit) with backoff.
 See docs/08_OPENROUTER_INTEGRATION.md.
 """
 import logging
+import time
 from typing import Any, Optional
 
 import httpx
@@ -11,6 +13,10 @@ import httpx
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Retry 429 (rate limit): max attempts, delay in seconds before first retry
+MAX_RETRIES_429 = 3
+RETRY_DELAY_SECONDS = 5
 
 
 class OpenRouterError(Exception):
@@ -77,17 +83,52 @@ class OpenRouterService:
             "HTTP-Referer": "https://github.com/ai-content-system",
         }
 
-        try:
-            with httpx.Client(timeout=120.0) as client:
-                resp = client.post(url, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-        except httpx.HTTPStatusError as e:
-            logger.exception("OpenRouter HTTP error: %s", e.response.text)
-            raise OpenRouterError(f"OpenRouter API error: {e.response.status_code}") from e
-        except Exception as e:
-            logger.exception("OpenRouter request failed: %s", e)
-            raise OpenRouterError(str(e)) from e
+        last_error = None
+        for attempt in range(1, MAX_RETRIES_429 + 1):
+            try:
+                with httpx.Client(timeout=300.0) as client:
+                    resp = client.post(url, json=payload, headers=headers)
+                    if resp.status_code == 429 and attempt < MAX_RETRIES_429:
+                        delay = RETRY_DELAY_SECONDS * attempt
+                        try:
+                            body = resp.json()
+                            msg = body.get("error", {}).get("message", "") or resp.text
+                            if "rate-limit" in msg.lower() or "rate limited" in msg.lower():
+                                logger.warning("OpenRouter 429 rate limit (attempt %s/%s), retry in %ss: %s", attempt, MAX_RETRIES_429, delay, msg[:200])
+                        except Exception:
+                            logger.warning("OpenRouter 429 (attempt %s/%s), retry in %ss", attempt, MAX_RETRIES_429, delay)
+                        time.sleep(delay)
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                    break
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                if e.response.status_code == 429 and attempt < MAX_RETRIES_429:
+                    delay = RETRY_DELAY_SECONDS * attempt
+                    logger.warning("OpenRouter 429, retry in %ss (attempt %s/%s)", delay, attempt, MAX_RETRIES_429)
+                    time.sleep(delay)
+                    continue
+                try:
+                    err_body = e.response.json()
+                    msg = err_body.get("error", {}).get("message", str(e))
+                except Exception:
+                    msg = e.response.text or str(e)
+                logger.exception("OpenRouter HTTP error: %s", msg)
+                raise OpenRouterError(f"OpenRouter API error: {e.response.status_code}. {msg[:300]}") from e
+            except Exception as e:
+                last_error = e
+                logger.exception("OpenRouter request failed: %s", e)
+                raise OpenRouterError(str(e)) from e
+        else:
+            if last_error and isinstance(last_error, httpx.HTTPStatusError) and last_error.response.status_code == 429:
+                try:
+                    body = last_error.response.json()
+                    msg = body.get("error", {}).get("message", "Rate limit exceeded. Try again in a few minutes or use another model.")
+                except Exception:
+                    msg = "Rate limit (429). Try again later or choose another model in AI Settings."
+                raise OpenRouterError(msg) from last_error
+            raise OpenRouterError("OpenRouter request failed after retries") from last_error
 
         choices = data.get("choices")
         if not choices or not isinstance(choices[0].get("message"), dict):

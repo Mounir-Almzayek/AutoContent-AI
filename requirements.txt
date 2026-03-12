@@ -13,11 +13,15 @@ langgraph>=0.0.40
 langchain-core>=0.1.0
 httpx>=0.26.0
 
+# Web search for trend discovery (no API key)
+ddgs>=9.0.0
+
 # Scheduler
 apscheduler>=3.10.0
 
 # Dashboard
 streamlit>=1.29.0
+pandas>=2.0.0
 
 # Optional: embeddings for duplicate check
 # sentence-transformers>=2.2.0

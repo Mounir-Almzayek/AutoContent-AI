@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any, Optional
 
+from services.agent_settings import get_model_for_agent
 from services.openrouter_service import OpenRouterService, OpenRouterError, get_openrouter_service
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ def run_quality_check(
                 {"role": "system", "content": QUALITY_SYSTEM},
                 {"role": "user", "content": user_msg},
             ],
+            model=get_model_for_agent("quality_agent"),
         )
     except OpenRouterError as e:
         logger.exception("Quality agent OpenRouter error: %s", e)

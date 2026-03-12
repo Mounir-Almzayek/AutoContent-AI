@@ -8,7 +8,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 logger = logging.getLogger(__name__)
@@ -92,8 +91,60 @@ def _run_generation(keyword_id: int) -> None:
         db.close()
 
 
+def _run_recurring_keywords(rule_id: int) -> None:
+    """Job: run recurring trend discovery for a keyword rule; import new keywords."""
+    from app.database import SessionLocal
+    from models.schedule_rule import ScheduleRule
+    from models.keyword import Keyword
+    from agents.trend_agent import run_trend_discovery
+    from services.token_tracker import TokenTracker
+
+    db = SessionLocal()
+    try:
+        rule = db.get(ScheduleRule, rule_id)
+        if not rule or not rule.enabled or (rule.rule_type or "articles") != "keywords":
+            return
+        niche = (rule.niche or "").strip()
+        if not niche:
+            logger.warning("Recurring keyword rule %s: niche is empty", rule_id)
+            return
+        n = rule.trend_keywords_count or 5
+        time_window = rule.trend_time_window or "last month"
+        language = rule.language or "en"
+        items, usage = run_trend_discovery(niche=niche, language=language, number_of_keywords=n, time_window=time_window)
+        if usage and isinstance(usage, dict):
+            tracker = TokenTracker(db)
+            tracker.log(
+                model="openai/gpt-4o",
+                tokens_prompt=usage.get("prompt_tokens", 0),
+                tokens_completion=usage.get("completion_tokens", 0),
+                cost=usage.get("total_cost"),
+            )
+        imported = 0
+        for item in items:
+            kw = (item.get("primary_keyword") or "").strip()
+            if not kw:
+                continue
+            from sqlalchemy import select
+            existing = db.execute(select(Keyword).where(Keyword.keyword == kw)).first()
+            if existing:
+                continue
+            topic = (item.get("article_title") or item.get("trend_topic") or "").strip() or None
+            intent = (item.get("search_intent") or "").strip() or None
+            db.add(Keyword(keyword=kw, topic=topic[:512] if topic else None, search_intent=intent[:64] if intent else None, status="pending"))
+            imported += 1
+        rule.last_run_at = datetime.now(timezone.utc)
+        rule.last_keywords_count = imported
+        db.commit()
+        logger.info("Recurring keyword rule %s: imported %s keywords", rule_id, imported)
+    except Exception as e:
+        logger.exception("Recurring keyword rule error: rule_id=%s %s", rule_id, e)
+    finally:
+        db.close()
+
+
 def _run_recurring_generation(rule_id: int) -> None:
-    """Job: run recurring generation for a rule (N articles from keyword queue)."""
+    """Job: run recurring article generation (always all_pending keywords, always publish immediately)."""
     from app.database import SessionLocal
     from sqlalchemy import select
     from models.keyword import Keyword
@@ -108,15 +159,10 @@ def _run_recurring_generation(rule_id: int) -> None:
         rule = db.get(ScheduleRule, rule_id)
         if not rule or not rule.enabled:
             return
+        if (rule.rule_type or "articles") != "articles":
+            return
         n = rule.articles_per_run
-        if rule.keyword_filter == "ids" and rule.keyword_ids:
-            try:
-                ids = json.loads(rule.keyword_ids) if rule.keyword_ids.strip().startswith("[") else [int(x.strip()) for x in rule.keyword_ids.split(",") if x.strip()]
-            except Exception:
-                ids = []
-            kw_query = select(Keyword).where(Keyword.id.in_(ids), Keyword.keyword.isnot(None)).limit(n)
-        else:
-            kw_query = select(Keyword).where(Keyword.status == "pending").order_by(Keyword.created_at).limit(n)
+        kw_query = select(Keyword).where(Keyword.status == "pending").order_by(Keyword.created_at).limit(n)
         keywords = list(db.execute(kw_query).scalars().all())
         existing_q = (
             select(Article.id, Article.title, Article.content)
@@ -148,17 +194,31 @@ def _run_recurring_generation(rule_id: int) -> None:
             if aid:
                 generated += 1
                 existing_articles.insert(0, {"id": aid, "title": "", "content_snippet": ""})
-                if rule.publish_behavior == "immediate":
-                    wp_publish(aid, db)
-                elif rule.publish_behavior == "delay" and rule.publish_delay_minutes:
-                    run_at = datetime.now(timezone.utc) + timedelta(minutes=rule.publish_delay_minutes)
-                    schedule_publish(aid, run_at)
+                wp_publish(aid, db)
         rule.last_run_at = datetime.now(timezone.utc)
         rule.last_articles_count = generated
         db.commit()
         logger.info("Recurring rule %s: generated %s articles", rule_id, generated)
     except Exception as e:
         logger.exception("Recurring generation error: rule_id=%s %s", rule_id, e)
+    finally:
+        db.close()
+
+
+def _run_recurring(rule_id: int) -> None:
+    """Dispatch recurring job by rule type: keywords (trend) or articles (generation)."""
+    from app.database import SessionLocal
+    from models.schedule_rule import ScheduleRule
+
+    db = SessionLocal()
+    try:
+        rule = db.get(ScheduleRule, rule_id)
+        if not rule:
+            return
+        if (rule.rule_type or "articles") == "keywords":
+            _run_recurring_keywords(rule_id)
+        else:
+            _run_recurring_generation(rule_id)
     finally:
         db.close()
 
@@ -229,13 +289,9 @@ def add_rule_job(rule: Any) -> str:
         s.remove_job(job_id)
     except Exception:
         pass
-    if rule.trigger_type == "interval" and rule.interval_minutes:
-        trigger = IntervalTrigger(minutes=rule.interval_minutes)
-    elif rule.trigger_type == "cron" and rule.cron_expression:
-        trigger = CronTrigger.from_crontab(rule.cron_expression.strip())
-    else:
-        raise ValueError("Rule must have interval_minutes or cron_expression")
-    job = s.add_job(_run_recurring_generation, trigger, args=[rule.id], id=job_id)
+    minutes = rule.interval_minutes or 360
+    trigger = IntervalTrigger(minutes=minutes)
+    job = s.add_job(_run_recurring, trigger, args=[rule.id], id=job_id)
     return job.id
 
 

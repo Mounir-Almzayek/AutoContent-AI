@@ -5,6 +5,7 @@ See docs/06_DASHBOARD_SPEC.md. Connects to FastAPI backend at BACKEND_URL.
 import os
 from datetime import datetime, timezone, timedelta
 
+import pandas as pd
 import httpx
 import streamlit as st
 
@@ -38,15 +39,12 @@ def format_short_date(s: str | None) -> str:
     except Exception:
         return str(s)[:19]
 
-# OpenRouter models for AI Settings dropdown
-OPENROUTER_MODELS = [
-    "openai/gpt-4o",
-    "openai/gpt-4o-mini",
-    "anthropic/claude-3-opus",
-    "anthropic/claude-3-sonnet",
-    "anthropic/claude-3-haiku",
-    "mistralai/mixtral-8x7b-instruct",
-    "meta-llama/llama-3-70b-instruct",
+# Example free OpenRouter model IDs (user types any model ID manually)
+OPENROUTER_FREE_EXAMPLES = [
+    "google/gemma-2-9b-it:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "mistralai/mistral-7b-instruct:free",
+    "qwen/qwen-2-7b-instruct:free",
 ]
 
 
@@ -65,10 +63,10 @@ def api_get(path: str, params: dict | None = None) -> tuple[dict | list | None, 
 
 
 def api_post(path: str, json: dict | None = None, files: dict | None = None) -> tuple[dict | None, str | None]:
-    """POST request. Returns (data, error_message)."""
+    """POST request. Returns (data, error_message). Long timeout for trend discovery / generation."""
     url = f"{API_BASE}{path}"
     try:
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=300.0) as client:
             if files:
                 r = client.post(url, files=files)
             else:
@@ -111,63 +109,126 @@ def api_delete(path: str) -> tuple[bool, str | None]:
 
 def page_articles():
     st.title("Articles Manager")
-    with st.spinner("Loading articles…"):
-        data, err = api_get("/articles", params={"limit": 100})
-    if err:
-        st.error(err)
-        st.caption("Check that the backend is running and try again.")
-        return
-    items = data.get("items") or []
-    total = data.get("total") or 0
-    by_status = {}
-    for a in items:
-        s = a.get("status") or "draft"
-        by_status[s] = by_status.get(s, 0) + 1
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Total", total)
-    m2.metric("Draft", by_status.get("draft", 0))
-    m3.metric("Ready", by_status.get("ready", 0))
-    m4.metric("Published", by_status.get("published", 0))
-    m5.metric("Failed", by_status.get("failed", 0))
     tab_list, tab_generate = st.tabs(["Article list", "Generate new article"])
     with tab_list:
+        search_art = st.text_input("Search by title", key="art_search", placeholder="Type to filter by article title…")
         status_filter = st.selectbox("Filter by status", ["", "draft", "generating", "ready", "published", "failed"], key="art_status")
-        filtered = [a for a in items if not status_filter or a.get("status") == status_filter]
+        params = {"limit": 100}
+        if status_filter:
+            params["status"] = status_filter
+        if search_art and search_art.strip():
+            params["q"] = search_art.strip()
+        with st.spinner("Loading articles…"):
+            data, err = api_get("/articles", params=params)
+        if err:
+            st.error(err)
+            st.caption("Check that the backend is running and try again.")
+            return
+        items = data.get("items") or []
+        total = data.get("total") or 0
+        by_status = {}
+        for a in items:
+            s = a.get("status") or "draft"
+            by_status[s] = by_status.get(s, 0) + 1
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Total", total)
+        m2.metric("Draft", by_status.get("draft", 0))
+        m3.metric("Ready", by_status.get("ready", 0))
+        m4.metric("Published", by_status.get("published", 0))
+        m5.metric("Failed", by_status.get("failed", 0))
+
+        # Article preview (full-screen readable)
+        if st.session_state.get("preview_article"):
+            art = st.session_state["preview_article"]
+            st.divider()
+            with st.container():
+                st.markdown("---")
+                st.subheader("📄 Article preview")
+                st.markdown(f"**{art.get('title') or 'Untitled'}**")
+                st.caption(f"ID {art.get('id')} · {art.get('status', '')} · {format_short_date(art.get('created_at'))}")
+                if art.get("meta_description"):
+                    st.caption(art.get("meta_description"))
+                st.markdown("---")
+                content = (art.get("content") or "").strip()
+                if content:
+                    st.markdown(content, unsafe_allow_html=True)
+                else:
+                    st.info("No content.")
+                st.markdown("---")
+                if st.button("Close preview", key="close_preview"):
+                    del st.session_state["preview_article"]
+                    if "preview_article_id" in st.session_state:
+                        del st.session_state["preview_article_id"]
+                    st.rerun()
+            st.divider()
+
+        filtered = items
         if not filtered:
             st.info("No articles yet. Use the **Generate new article** tab to create one.")
         else:
-            for a in filtered:
-                title = (a.get("title") or "Untitled")[:55]
-                status = (a.get("status") or "draft").capitalize()
-                with st.expander(f"{title} — {status}", expanded=False):
-                    st.markdown(status_badge(a.get("status") or "draft"), unsafe_allow_html=True)
-                    st.caption(f"ID {a.get('id')} · Created {format_short_date(a.get('created_at'))}")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        if st.button("View details", key=f"view_{a['id']}"):
-                            det, e = api_get(f"/articles/{a['id']}")
-                            if e:
-                                st.error(e)
-                            else:
-                                st.json(det)
-                    with col2:
-                        if status == "ready" and st.button("Publish to WordPress", key=f"pub_{a['id']}"):
-                            with st.spinner("Publishing…"):
-                                _, e = api_post(f"/articles/{a['id']}/publish")
-                            if e:
-                                st.error(e)
-                            else:
-                                st.success("Published")
-                                st.rerun()
-                    with col3:
-                        confirm = st.checkbox("Confirm delete", key=f"confirm_del_{a['id']}")
-                        if st.button("Delete", key=f"del_art_{a['id']}", disabled=not confirm):
-                            ok, e = api_delete(f"/articles/{a['id']}")
-                            if e:
-                                st.error(e)
-                            else:
-                                st.success("Deleted")
-                                st.rerun()
+            df = pd.DataFrame([
+                {
+                    "ID": a.get("id"),
+                    "Title": (a.get("title") or "Untitled")[:80],
+                    "Status": (a.get("status") or "draft").capitalize(),
+                    "Created": format_short_date(a.get("created_at")),
+                    "Meta": (a.get("meta_title") or "")[:40] or "—",
+                }
+                for a in filtered
+            ])
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "ID": st.column_config.NumberColumn("ID", width="small"),
+                    "Title": st.column_config.TextColumn("Title", width="large"),
+                    "Status": st.column_config.TextColumn("Status", width="small"),
+                    "Created": st.column_config.TextColumn("Created", width="medium"),
+                    "Meta": st.column_config.TextColumn("Meta title", width="medium"),
+                },
+            )
+            st.caption("Use the actions below for the selected article.")
+            sel_col, btn_col = st.columns([2, 3])
+            with sel_col:
+                options = {f"#{a['id']} — {(a.get('title') or 'Untitled')[:50]}": a["id"] for a in filtered}
+                selected_label = st.selectbox("Select article", options=list(options.keys()), key="art_sel", label_visibility="collapsed")
+                selected_id = options.get(selected_label) if selected_label else None
+            with btn_col:
+                b1, b2, b3, b4 = st.columns(4)
+                with b1:
+                    if st.button("Preview", key="art_btn_preview", disabled=not selected_id):
+                        det, e = api_get(f"/articles/{selected_id}")
+                        if e:
+                            st.error(e)
+                        else:
+                            st.session_state["preview_article"] = det
+                            st.session_state["preview_article_id"] = selected_id
+                            st.rerun()
+                with b2:
+                    art_status = next((a.get("status") for a in filtered if a["id"] == selected_id), "")
+                    if st.button("Publish", key="art_btn_pub", disabled=not selected_id or art_status != "ready"):
+                        _, e = api_post(f"/articles/{selected_id}/publish")
+                        if e:
+                            st.error(e)
+                        else:
+                            st.success("Published")
+                            st.rerun()
+                with b3:
+                    if st.button("View JSON", key="art_btn_json", disabled=not selected_id):
+                        det, e = api_get(f"/articles/{selected_id}")
+                        if e:
+                            st.error(e)
+                        else:
+                            st.json(det)
+                with b4:
+                    if st.button("Delete", key="art_btn_del", disabled=not selected_id, type="secondary"):
+                        ok, e = api_delete(f"/articles/{selected_id}")
+                        if e:
+                            st.error(e)
+                        else:
+                            st.success("Deleted")
+                            st.rerun()
     with tab_generate:
         with st.form("generate_form"):
             keyword = st.text_input("Keyword", placeholder="e.g. best SEO tools 2024", help="Main topic for the article.")
@@ -194,34 +255,63 @@ def page_articles():
 
 def page_keywords():
     st.title("Keywords Manager")
-    with st.spinner("Loading keywords…"):
-        data, err = api_get("/keywords", params={"limit": 100})
-    if err:
-        st.error(err)
-        return
-    items = data.get("items") or []
-    total = data.get("total") or 0
-    st.metric("Total keywords", total)
-    tab_list, tab_add, tab_import = st.tabs(["Keyword list", "Add keyword", "Import from file"])
+    tab_list, tab_add, tab_import, tab_trends = st.tabs(["Keyword list", "Add keyword", "Import from file", "Discover trends"])
     with tab_list:
+        search_kw = st.text_input("Search by name", key="kw_search", placeholder="Type to filter by keyword…")
         status_f = st.selectbox("Filter by status", ["", "pending", "processed", "failed"], key="kw_status")
-        filtered = [k for k in items if not status_f or k.get("status") == status_f]
+        params = {"limit": 100}
+        if status_f:
+            params["status"] = status_f
+        if search_kw and search_kw.strip():
+            params["q"] = search_kw.strip()
+        with st.spinner("Loading keywords…"):
+            data, err = api_get("/keywords", params=params)
+        if err:
+            st.error(err)
+            return
+        items = data.get("items") or []
+        total = data.get("total") or 0
+        st.metric("Total keywords", total)
+        filtered = items
         if not filtered:
             st.info("No keywords yet. Use **Add keyword** or **Import from file** to add some.")
         else:
-            for k in filtered:
-                badge = status_badge(k.get("status") or "pending")
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.markdown(f"**{k.get('keyword', '')}** {badge} · ID {k.get('id')}", unsafe_allow_html=True)
-                with col2:
-                    if st.button("Delete", key=f"del_kw_{k['id']}"):
-                        ok, e = api_delete(f"/keywords/{k['id']}")
-                        if e:
-                            st.error(e)
-                        else:
-                            st.success("Deleted")
-                            st.rerun()
+            df = pd.DataFrame([
+                {
+                    "ID": k.get("id"),
+                    "Keyword": (k.get("keyword") or "")[:100],
+                    "Topic": (k.get("topic") or "—")[:60],
+                    "Intent": (k.get("search_intent") or "—")[:20],
+                    "Status": (k.get("status") or "pending").capitalize(),
+                }
+                for k in filtered
+            ])
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "ID": st.column_config.NumberColumn("ID", width="small"),
+                    "Keyword": st.column_config.TextColumn("Keyword", width="large"),
+                    "Topic": st.column_config.TextColumn("Topic", width="medium"),
+                    "Intent": st.column_config.TextColumn("Intent", width="small"),
+                    "Status": st.column_config.TextColumn("Status", width="small"),
+                },
+            )
+            st.caption("Select a keyword below to delete it.")
+            sel_col, btn_col = st.columns([2, 1])
+            with sel_col:
+                options = {f"#{k['id']} — {(k.get('keyword') or '')[:60]}": k["id"] for k in filtered}
+                selected_label = st.selectbox("Select keyword", options=list(options.keys()), key="kw_sel", label_visibility="collapsed")
+                selected_id = options.get(selected_label) if selected_label else None
+            with btn_col:
+                if st.button("Delete selected", key="kw_btn_del", disabled=not selected_id, type="secondary"):
+                    ok, e = api_delete(f"/keywords/{selected_id}")
+                    if e:
+                        st.error(e)
+                    else:
+                        st.success("Deleted")
+                        st.rerun()
     with tab_add:
         with st.form("add_keyword"):
             kw = st.text_input("Keyword", key="new_kw", placeholder="e.g. best CRM software 2024")
@@ -247,6 +337,98 @@ def page_keywords():
                 st.success(f"Imported {imp} new keyword(s). {out.get('total_unique', 0)} unique in file.")
                 st.rerun()
 
+    with tab_trends:
+        st.caption("Discover trending topics and SEO keywords for your niche. Results can be added to your keyword list for content generation.")
+        with st.form("trend_discovery"):
+            niche = st.text_input("Niche / industry", value="AI tools", placeholder="e.g. digital marketing, fintech, SaaS", key="trend_niche")
+            lang_trend = st.text_input("Language", value="en", max_chars=16, key="trend_lang")
+            num_kw = st.number_input("Number of keywords", min_value=1, max_value=20, value=5, key="trend_num")
+            time_window = st.selectbox(
+                "Time window for trends",
+                ["last week", "last month", "current trends"],
+                key="trend_window",
+            )
+            if st.form_submit_button("Discover trends"):
+                if not niche or not niche.strip():
+                    st.error("Enter a niche or industry.")
+                else:
+                    with st.spinner("Discovering trends (this may take a moment)…"):
+                        out, e = api_post(
+                            "/keywords/trend-discovery",
+                            json={
+                                "niche": niche.strip(),
+                                "language": lang_trend,
+                                "number_of_keywords": num_kw,
+                                "time_window": time_window,
+                            },
+                        )
+                    if e:
+                        st.error(e)
+                    else:
+                        st.session_state["trend_results"] = out.get("items") or []
+                        st.session_state["trend_done"] = True
+                        st.rerun()
+
+        if st.session_state.get("trend_done") and st.session_state.get("trend_results"):
+            results = st.session_state["trend_results"]
+            st.subheader(f"Results ({len(results)} items)")
+            st.divider()
+            df_trend = pd.DataFrame([
+                {
+                    "#": i + 1,
+                    "Trend": (r.get("trend_topic") or "")[:50],
+                    "Primary keyword": (r.get("primary_keyword") or "")[:50],
+                    "Intent": (r.get("search_intent") or "Informational")[:20],
+                    "Words": r.get("recommended_word_count", 1500),
+                    "Article title": (r.get("article_title") or "")[:60],
+                }
+                for i, r in enumerate(results)
+            ])
+            st.dataframe(
+                df_trend,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "#": st.column_config.NumberColumn("#", width="small"),
+                    "Trend": st.column_config.TextColumn("Trend", width="medium"),
+                    "Primary keyword": st.column_config.TextColumn("Primary keyword", width="medium"),
+                    "Intent": st.column_config.TextColumn("Intent", width="small"),
+                    "Words": st.column_config.NumberColumn("Words", width="small"),
+                    "Article title": st.column_config.TextColumn("Article title", width="large"),
+                },
+            )
+            st.caption("Select an item to add, or add all. Use buttons above to add all or clear.")
+            sel_col, b1, b2, b3 = st.columns([2, 1, 1, 1])
+            with sel_col:
+                options_trend = {f"#{i+1} — {r.get('primary_keyword', '')[:45]}": i for i, r in enumerate(results)}
+                selected_label_t = st.selectbox("Select result", options=list(options_trend.keys()), key="trend_sel", label_visibility="collapsed")
+                selected_idx = options_trend.get(selected_label_t) if selected_label_t else None
+            with b1:
+                if st.button("Add selected", key="trend_add_sel", disabled=selected_idx is None):
+                    payload = {"items": [results[selected_idx]]}
+                    out_imp, err = api_post("/keywords/import-from-trends", json=payload)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.success(f"Added {out_imp.get('imported', 0)} keyword(s).")
+                        st.rerun()
+            with b2:
+                if st.button("Add all", key="trend_add_all_btn"):
+                    payload = {"items": results}
+                    out_imp, err = api_post("/keywords/import-from-trends", json=payload)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.success(f"Added {out_imp.get('imported', 0)} keyword(s).")
+                        st.session_state["trend_results"] = []
+                        st.session_state["trend_done"] = False
+                        st.rerun()
+            with b3:
+                if st.button("Clear results", key="trend_clear_btn"):
+                    st.session_state["trend_results"] = []
+                    st.session_state["trend_done"] = False
+                    st.rerun()
+
 
 def page_usage():
     st.title("Token Usage")
@@ -266,24 +448,70 @@ def page_usage():
     st.caption(f"From {format_short_date(data.get('period_start'))} to {format_short_date(data.get('period_end'))}")
 
 
+# Agent IDs for per-agent model settings (must match backend AGENT_IDS)
+AI_AGENT_LABELS = [
+    ("default", "Default (fallback for all agents)"),
+    ("keyword_agent", "Keyword analyzer"),
+    ("brief_agent", "Content brief"),
+    ("article_agent", "Article generator"),
+    ("quality_agent", "Quality check"),
+    ("duplicate_agent", "Duplicate check"),
+    ("seo_agent", "SEO optimizer"),
+    ("trend_agent", "Trend discovery"),
+]
+
+
 def page_settings():
     st.title("AI Settings")
+    st.caption("Set a model per agent. Empty = use Default. Each agent will use the model you set here.")
     with st.spinner("Loading…"):
         data, err = api_get("/settings/ai")
     if err:
         st.error(err)
         return
+    default = data.get("default") or {}
+    agents = data.get("agents") or {}
     with st.container():
         with st.form("ai_settings"):
-            model = st.selectbox("Model", OPENROUTER_MODELS, index=OPENROUTER_MODELS.index(data.get("model", "openai/gpt-4o")) if data.get("model") in OPENROUTER_MODELS else 0, help="LLM used for generation.")
-            temp = st.slider("Temperature", 0.0, 2.0, float(data.get("temperature", 0.7)), 0.1, help="Higher = more creative, lower = more focused.")
-            max_tok = st.number_input("Max tokens", min_value=256, max_value=128000, value=int(data.get("max_tokens", 4096)), help="Max tokens per completion.")
+            st.subheader("Per-agent model (OpenRouter model ID)")
+            with st.expander("Free models (OpenRouter)", expanded=False):
+                st.caption("Full list: [openrouter.ai/models](https://openrouter.ai/models)")
+                for ex in OPENROUTER_FREE_EXAMPLES:
+                    st.code(ex, language=None)
+            inputs = {}
+            for agent_id, label in AI_AGENT_LABELS:
+                if agent_id == "default":
+                    row = default
+                    val = (row.get("model") or "openai/gpt-4o").strip()
+                    inputs["default_model"] = st.text_input("Default — model", value=val, placeholder="e.g. openai/gpt-4o", key="set_default_model")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        inputs["default_temp"] = st.slider("Default — temperature", 0.0, 2.0, float(default.get("temperature", 0.7)), 0.1, key="set_default_temp")
+                    with c2:
+                        inputs["default_max_tok"] = st.number_input("Default — max tokens", min_value=256, max_value=128000, value=int(default.get("max_tokens", 4096)), key="set_default_maxtok")
+                else:
+                    row = agents.get(agent_id) or {}
+                    val = (row.get("model") or "").strip()
+                    inputs[agent_id] = st.text_input(f"{label} — model (empty = use Default)", value=val, placeholder="empty = Default", key=f"set_{agent_id}")
             if st.form_submit_button("Save settings"):
-                out, e = api_patch("/settings/ai", json={"model": model, "temperature": temp, "max_tokens": max_tok})
+                payload = {
+                    "default": {
+                        "model": (inputs.get("default_model") or "").strip() or "openai/gpt-4o",
+                        "temperature": inputs.get("default_temp", 0.7),
+                        "max_tokens": inputs.get("default_max_tok", 4096),
+                    },
+                    "agents": {},
+                }
+                for agent_id, _ in AI_AGENT_LABELS:
+                    if agent_id == "default":
+                        continue
+                    payload["agents"][agent_id] = {"model": (inputs.get(agent_id) or "").strip()}
+                out, e = api_patch("/settings/ai", json=payload)
                 if e:
                     st.error(e)
                 else:
-                    st.success("Settings saved. They will apply to the next generation.")
+                    st.success("Settings saved. Each agent will use its assigned model.")
+                    st.rerun()
 
 
 def _calendar_events_by_date(events: list) -> dict:
@@ -362,21 +590,32 @@ def page_calendar():
             st.warning("Calendar API: " + err_c)
         else:
             events = (cal or {}).get("events") or []
-            by_date = _calendar_events_by_date(events)
-            if not by_date:
+            if not events:
                 st.info("No events in the next 31 days. Schedule jobs or recurring rules to see them here.")
             else:
-                for date_key in sorted(by_date.keys()):
-                    with st.expander(f"📅 {date_key} ({len(by_date[date_key])} events)", expanded=(date_key == sorted(by_date.keys())[0])):
-                        for e in by_date[date_key]:
-                            typ = e.get("type", "job")
-                            run_at = e.get("run_at", "")[:19]
-                            if typ == "article":
-                                st.markdown(f"**Article** · {e.get('status', '')} · {e.get('title', '') or e.get('id')} · {run_at}")
-                            else:
-                                jtype = e.get("job_type", "job")
-                                rid = e.get("article_id") or e.get("keyword_id") or e.get("rule_id")
-                                st.markdown(f"**Job** · {jtype} · ID `{rid}` · {run_at}")
+                rows = []
+                for e in events:
+                    run_at = e.get("run_at") or ""
+                    date_key = run_at[:10] if len(run_at) >= 10 else "—"
+                    typ = e.get("type", "job")
+                    if typ == "article":
+                        rows.append({"Date": date_key, "Type": "Article", "Target": e.get("title") or f"ID {e.get('id')}", "Run at": run_at[:19] if run_at else "—"})
+                    else:
+                        rid = e.get("article_id") or e.get("keyword_id") or e.get("rule_id")
+                        rows.append({"Date": date_key, "Type": e.get("job_type", "job"), "Target": f"ID {rid}", "Run at": run_at[:19] if run_at else "—"})
+                df_cal = pd.DataFrame(rows)
+                df_cal = df_cal.sort_values(by=["Date", "Run at"], ascending=[True, True])
+                st.dataframe(
+                    df_cal,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Date": st.column_config.TextColumn("Date", width="small"),
+                        "Type": st.column_config.TextColumn("Type", width="small"),
+                        "Target": st.column_config.TextColumn("Target", width="large"),
+                        "Run at": st.column_config.TextColumn("Run at", width="medium"),
+                    },
+                )
 
     with tab_onetime:
         col_a, col_b = st.columns(2)
@@ -414,158 +653,197 @@ def page_calendar():
                         st.rerun()
 
     with tab_recurring:
-        st.subheader("Recurring generation rules")
-        st.caption("Configure automatic article generation: interval or cron, number of articles, keywords, and publish behavior (draft / immediate / delayed).")
-        if rules:
-            for r in rules:
-                rid = r.get("id")
-                en = r.get("enabled", True)
-                trigger_str = _format_interval_minutes(r.get("interval_minutes")) if r.get("trigger_type") == "interval" else f"Cron: {r.get('cron_expression') or '—'}"
-                pub_str = _format_publish_behavior(r.get("publish_behavior", "draft"), r.get("publish_delay_minutes"))
-                with st.container():
-                    st.markdown(f"**{r.get('name', 'Rule')}** " + ("🟢 Active" if en else "⏸ Paused"))
-                    st.caption(
-                        f"{trigger_str} · {r.get('articles_per_run')} articles/run · {pub_str} · "
-                        f"Last: {format_short_date(r.get('last_run_at'))} ({r.get('last_articles_count') or 0} articles)"
-                    )
-                    rb1, rb2, rb3 = st.columns([1, 1, 2])
-                    with rb1:
-                        if st.button("Pause" if en else "Resume", key=f"rule_toggle_{rid}"):
-                            path = f"/scheduler/rules/{rid}/pause" if en else f"/scheduler/rules/{rid}/resume"
-                            _, e = api_post(path)
-                            if e:
-                                st.error(e)
+        keyword_rules = [r for r in rules if r.get("rule_type") == "keywords"]
+        article_rules = [r for r in rules if r.get("rule_type") != "keywords"]
+
+        st.subheader("🔑 Keyword scheduler")
+        st.caption("Run trend discovery every X minutes and add new keywords to the list.")
+        if keyword_rules:
+            df_kw_rules = pd.DataFrame([
+                {
+                    "ID": r.get("id"),
+                    "Name": (r.get("name") or "")[:40],
+                    "Interval": _format_interval_minutes(r.get("interval_minutes")),
+                    "Niche": (r.get("niche") or "—")[:35],
+                    "Kw/run": r.get("trend_keywords_count") or 5,
+                    "Last run": format_short_date(r.get("last_run_at")),
+                    "Added": r.get("last_keywords_count") or 0,
+                    "Status": "🟢 Active" if r.get("enabled", True) else "⏸ Paused",
+                }
+                for r in keyword_rules
+            ])
+            st.dataframe(df_kw_rules, use_container_width=True, hide_index=True)
+            st.caption("Select a rule to pause, resume, delete, or edit.")
+            ksel, kbtn1, kbtn2 = st.columns([2, 1, 1])
+            with ksel:
+                kw_opts = {f"#{r['id']} {r.get('name','')[:35]}": r["id"] for r in keyword_rules}
+                kw_sel_label = st.selectbox("Rule", list(kw_opts.keys()), key="kw_rule_sel", label_visibility="collapsed")
+                kw_rid = kw_opts.get(kw_sel_label) if kw_sel_label else None
+            r_kw = next((r for r in keyword_rules if r["id"] == kw_rid), None) if kw_rid else None
+            with kbtn1:
+                if r_kw and st.button("Pause" if r_kw.get("enabled", True) else "Resume", key="kw_toggle"):
+                    path = f"/scheduler/rules/{kw_rid}/pause" if r_kw.get("enabled", True) else f"/scheduler/rules/{kw_rid}/resume"
+                    _, e = api_post(path)
+                    if e:
+                        st.error(e)
+                    else:
+                        st.toast("Rule updated.")
+                        st.rerun()
+            with kbtn2:
+                if st.button("Delete", key="kw_del_btn", disabled=not kw_rid):
+                    api_delete(f"/scheduler/rules/{kw_rid}")
+                    st.toast("Rule deleted.")
+                    st.rerun()
+            with st.expander("Edit selected rule", expanded=False):
+                if r_kw:
+                    with st.form("edit_kw_rule_form"):
+                        e_name = st.text_input("Name", value=r_kw.get("name", ""), max_chars=256, key="ekw_name")
+                        e_interval = st.number_input("Interval (min)", min_value=1, max_value=525600, value=r_kw.get("interval_minutes") or 360, key="ekw_interval")
+                        e_niche = st.text_input("Niche", value=r_kw.get("niche") or "", max_chars=256, key="ekw_niche")
+                        e_trend_n = st.number_input("Keywords per run", min_value=1, max_value=20, value=r_kw.get("trend_keywords_count") or 5, key="ekw_n")
+                        e_time_window = st.selectbox("Time window", ["last week", "last month", "current trends"], index=["last week", "last month", "current trends"].index(r_kw.get("trend_time_window") or "last month"), key="ekw_tw")
+                        e_lang = st.text_input("Language", value=r_kw.get("language", "en"), max_chars=16, key="ekw_lang")
+                        if st.form_submit_button("Save"):
+                            _, err = api_patch(f"/scheduler/rules/{kw_rid}", json={"name": e_name, "trigger_type": "interval", "interval_minutes": e_interval, "niche": e_niche.strip() or None, "trend_keywords_count": e_trend_n, "trend_time_window": e_time_window, "language": e_lang})
+                            if err:
+                                st.error(err)
                             else:
                                 st.toast("Rule updated.")
                                 st.rerun()
-                    with rb2:
-                        confirm_key = f"confirm_delete_rule_{rid}"
-                        if st.session_state.get(confirm_key):
-                            col_yes, col_no = st.columns(2)
-                            with col_yes:
-                                if st.button("Yes, delete", key=f"del_yes_{rid}"):
-                                    ok, err = api_delete(f"/scheduler/rules/{rid}")
-                                    if err:
-                                        st.error(err)
-                                    else:
-                                        if confirm_key in st.session_state:
-                                            del st.session_state[confirm_key]
-                                        st.toast("Rule deleted.")
-                                        st.rerun()
-                            with col_no:
-                                if st.button("Cancel", key=f"del_no_{rid}"):
-                                    if confirm_key in st.session_state:
-                                        del st.session_state[confirm_key]
-                                    st.rerun()
-                        elif st.button("Delete", key=f"rule_del_{rid}"):
-                            st.session_state[confirm_key] = True
-                            st.rerun()
-                    with st.expander("Edit rule", expanded=False):
-                        with st.form(f"edit_rule_{rid}"):
-                            e_name = st.text_input("Rule name", value=r.get("name", ""), max_chars=256, key=f"edit_name_{rid}")
-                            e_trigger = st.radio("Trigger type", ["interval", "cron"], index=0 if r.get("trigger_type") == "interval" else 1, horizontal=True, key=f"edit_trigger_{rid}")
-                            e_interval = st.number_input("Interval (minutes)", min_value=1, max_value=525600, value=r.get("interval_minutes") or 360, key=f"edit_interval_{rid}") if e_trigger == "interval" else None
-                            e_cron = st.text_input("Cron (e.g. 0 9 * * *)", value=r.get("cron_expression") or "0 9 * * *", max_chars=128, key=f"edit_cron_{rid}") if e_trigger == "cron" else None
-                            e_articles = st.number_input("Articles per run", min_value=1, max_value=20, value=r.get("articles_per_run", 1), key=f"edit_articles_{rid}")
-                            e_kw_filter = st.radio("Keyword source", ["all_pending", "ids"], index=0 if r.get("keyword_filter") == "all_pending" else 1, horizontal=True, key=f"edit_kw_{rid}")
-                            e_kw_ids = st.text_input("Keyword IDs (comma-separated)", value=r.get("keyword_ids") or "", key=f"edit_kw_ids_{rid}") if e_kw_filter == "ids" else None
-                            e_lang = st.text_input("Language", value=r.get("language", "en"), max_chars=16, key=f"edit_lang_{rid}")
-                            e_tone = st.text_input("Tone", value=r.get("tone", "professional"), max_chars=32, key=f"edit_tone_{rid}")
-                            e_words = st.number_input("Word count target", min_value=300, max_value=20000, value=r.get("word_count_target", 1500), key=f"edit_words_{rid}")
-                            e_pub = st.radio("After generation", ["draft", "immediate", "delay"], index=["draft", "immediate", "delay"].index(r.get("publish_behavior", "draft")), horizontal=True, key=f"edit_pub_{rid}")
-                            e_delay = st.number_input("Publish delay (min)", min_value=0, max_value=10080, value=r.get("publish_delay_minutes") or 30, key=f"edit_delay_{rid}") if e_pub == "delay" else None
-                            if st.form_submit_button("Save changes"):
-                                payload = {"name": e_name, "trigger_type": e_trigger, "articles_per_run": e_articles, "keyword_filter": e_kw_filter, "language": e_lang, "tone": e_tone, "word_count_target": e_words, "publish_behavior": e_pub}
-                                if e_trigger == "interval":
-                                    payload["interval_minutes"] = e_interval or 360
-                                    payload["cron_expression"] = None
-                                else:
-                                    payload["cron_expression"] = (e_cron or "").strip() or "0 9 * * *"
-                                    payload["interval_minutes"] = None
-                                if e_kw_filter == "ids":
-                                    payload["keyword_ids"] = (e_kw_ids or "").strip()
-                                if e_pub == "delay":
-                                    payload["publish_delay_minutes"] = e_delay or 30
-                                else:
-                                    payload["publish_delay_minutes"] = None
-                                _, err = api_patch(f"/scheduler/rules/{rid}", json=payload)
-                                if err:
-                                    st.error(err)
-                                else:
-                                    st.toast("Rule updated.")
-                                    st.rerun()
-                    st.divider()
         else:
-            st.info("No recurring rules. Add one below.")
-        with st.expander("➕ Add recurring rule", expanded=(len(rules) == 0)):
-            with st.form("add_rule"):
-                name = st.text_input("Rule name", value="Daily content", max_chars=256)
-                trigger_type = st.radio("Trigger type", ["interval", "cron"], format_func=lambda x: "Interval (every X minutes)" if x == "interval" else "Cron (e.g. 0 9 * * *)", horizontal=True)
-                interval_minutes = st.number_input("Interval (minutes)", min_value=1, max_value=525600, value=360, key="rule_interval") if trigger_type == "interval" else None
-                cron_expression = st.text_input("Cron expression (5 fields: min hour day month dow)", value="0 9 * * *", max_chars=128, key="rule_cron", placeholder="0 9 * * *") if trigger_type == "cron" else None
-                articles_per_run = st.number_input("Articles per run", min_value=1, max_value=20, value=1)
-                keyword_filter = st.radio("Keyword source", ["all_pending", "ids"], format_func=lambda x: "All pending keywords" if x == "all_pending" else "Specific keyword IDs", horizontal=True)
-                if keyword_filter == "ids":
-                    keyword_ids = st.text_input("Keyword IDs (comma-separated)", value="", key="rule_kw_ids")
-                    st.caption("Enter at least one keyword ID for generation to run.")
-                else:
-                    keyword_ids = None
-                language = st.text_input("Language", value="en", max_chars=16)
-                tone = st.text_input("Tone", value="professional", max_chars=32)
-                word_count_target = st.number_input("Word count target", min_value=300, max_value=20000, value=1500)
-                publish_behavior = st.radio("After generation", ["draft", "immediate", "delay"], format_func=lambda x: "Save as draft only" if x == "draft" else "Publish immediately" if x == "immediate" else "Publish after delay", horizontal=True)
-                publish_delay_minutes = st.number_input("Publish delay (minutes)", min_value=0, max_value=10080, value=30, key="rule_delay") if publish_behavior == "delay" else None
-                if st.form_submit_button("Create rule"):
-                    if trigger_type == "cron" and (not cron_expression or not str(cron_expression).strip()):
-                        st.error("Cron expression is required when trigger type is Cron.")
+            st.info("No keyword rules. Add one below.")
+        with st.expander("➕ Add keyword rule", expanded=(len(keyword_rules) == 0)):
+            with st.form("add_kw_rule"):
+                name = st.text_input("Rule name", value="Trend discovery", max_chars=256, key="add_kw_name")
+                interval_minutes = st.number_input("Interval (minutes)", min_value=1, max_value=525600, value=360, key="add_kw_interval")
+                niche = st.text_input("Niche", value="AI tools", placeholder="e.g. digital marketing", max_chars=256, key="add_kw_niche")
+                trend_keywords_count = st.number_input("Keywords per run", min_value=1, max_value=20, value=5, key="add_kw_count")
+                trend_time_window = st.selectbox("Time window", ["last week", "last month", "current trends"], key="add_kw_tw")
+                language = st.text_input("Language", value="en", max_chars=16, key="add_kw_lang")
+                if st.form_submit_button("Create keyword rule"):
+                    if not niche.strip():
+                        st.error("Enter a niche.")
                     else:
-                        payload = {
-                            "name": name,
-                            "trigger_type": trigger_type,
-                            "articles_per_run": articles_per_run,
-                            "keyword_filter": keyword_filter,
-                            "language": language,
-                            "tone": tone,
-                            "word_count_target": word_count_target,
-                            "publish_behavior": publish_behavior,
-                            "enabled": True,
-                        }
-                        if trigger_type == "interval" and interval_minutes:
-                            payload["interval_minutes"] = interval_minutes
-                        if trigger_type == "cron" and cron_expression:
-                            payload["cron_expression"] = str(cron_expression).strip()
-                        if keyword_filter == "ids" and keyword_ids is not None:
-                            payload["keyword_ids"] = str(keyword_ids).strip()
-                        if publish_behavior == "delay" and publish_delay_minutes is not None:
-                            payload["publish_delay_minutes"] = publish_delay_minutes
+                        payload = {"rule_type": "keywords", "name": name, "trigger_type": "interval", "interval_minutes": interval_minutes, "niche": niche.strip(), "trend_keywords_count": trend_keywords_count, "trend_time_window": trend_time_window, "language": language, "enabled": True}
                         out, e = api_post("/scheduler/rules", json=payload)
                         if e:
                             st.error(e)
                         else:
-                            st.toast("Rule created.")
+                            st.toast("Keyword rule created.")
                             st.rerun()
+
+        st.subheader("📄 Article scheduler")
+        st.caption("Generate articles from all pending keywords every X minutes and publish immediately.")
+        if article_rules:
+            df_art_rules = pd.DataFrame([
+                {
+                    "ID": r.get("id"),
+                    "Name": (r.get("name") or "")[:40],
+                    "Interval": _format_interval_minutes(r.get("interval_minutes")),
+                    "Art/run": r.get("articles_per_run", 1),
+                    "Last run": format_short_date(r.get("last_run_at")),
+                    "Generated": r.get("last_articles_count") or 0,
+                    "Status": "🟢 Active" if r.get("enabled", True) else "⏸ Paused",
+                }
+                for r in article_rules
+            ])
+            st.dataframe(df_art_rules, use_container_width=True, hide_index=True)
+            st.caption("Select a rule to pause, resume, delete, or edit.")
+            asel, abtn1, abtn2, aedit = st.columns([2, 1, 1, 1])
+            with asel:
+                art_opts = {f"#{r['id']} {r.get('name','')[:35]}": r["id"] for r in article_rules}
+                art_sel_label = st.selectbox("Rule", list(art_opts.keys()), key="art_rule_sel", label_visibility="collapsed")
+                art_rid = art_opts.get(art_sel_label) if art_sel_label else None
+            r_art = next((r for r in article_rules if r["id"] == art_rid), None) if art_rid else None
+            with abtn1:
+                if r_art and st.button("Pause" if r_art.get("enabled", True) else "Resume", key="art_toggle"):
+                    path = f"/scheduler/rules/{art_rid}/pause" if r_art.get("enabled", True) else f"/scheduler/rules/{art_rid}/resume"
+                    _, e = api_post(path)
+                    if e:
+                        st.error(e)
+                    else:
+                        st.toast("Rule updated.")
+                        st.rerun()
+            with abtn2:
+                if st.button("Delete", key="art_del_btn", disabled=not art_rid):
+                    api_delete(f"/scheduler/rules/{art_rid}")
+                    st.toast("Rule deleted.")
+                    st.rerun()
+            with st.expander("Edit selected rule", expanded=False):
+                if r_art:
+                    with st.form("edit_art_rule_form"):
+                        e_name = st.text_input("Name", value=r_art.get("name", ""), max_chars=256, key="art_name_edit")
+                        e_interval = st.number_input("Interval (min)", min_value=1, max_value=525600, value=r_art.get("interval_minutes") or 360, key="art_interval_edit")
+                        e_articles = st.number_input("Articles per run", min_value=1, max_value=20, value=r_art.get("articles_per_run", 1), key="art_n_edit")
+                        e_lang = st.text_input("Language", value=r_art.get("language", "en"), max_chars=16, key="art_lang_edit")
+                        e_tone = st.text_input("Tone", value=r_art.get("tone", "professional"), max_chars=32, key="art_tone_edit")
+                        e_words = st.number_input("Word count target", min_value=300, max_value=20000, value=r_art.get("word_count_target", 1500), key="art_words_edit")
+                        if st.form_submit_button("Save"):
+                            payload = {"name": e_name, "trigger_type": "interval", "interval_minutes": e_interval, "articles_per_run": e_articles, "language": e_lang, "tone": e_tone, "word_count_target": e_words}
+                            _, err = api_patch(f"/scheduler/rules/{art_rid}", json=payload)
+                            if err:
+                                st.error(err)
+                            else:
+                                st.toast("Rule updated.")
+                                st.rerun()
+        else:
+            st.info("No article rules. Add one below.")
+        with st.expander("➕ Add article rule", expanded=(len(article_rules) == 0)):
+            with st.form("add_art_rule"):
+                name = st.text_input("Rule name", value="Daily articles", max_chars=256, key="add_art_name")
+                interval_minutes = st.number_input("Interval (minutes)", min_value=1, max_value=525600, value=360, key="add_art_interval")
+                articles_per_run = st.number_input("Articles per run", min_value=1, max_value=20, value=1, key="add_art_n")
+                language = st.text_input("Language", value="en", max_chars=16, key="add_art_lang")
+                tone = st.text_input("Tone", value="professional", max_chars=32, key="add_art_tone")
+                word_count_target = st.number_input("Word count target", min_value=300, max_value=20000, value=1500, key="add_art_wc")
+                if st.form_submit_button("Create article rule"):
+                    payload = {
+                        "rule_type": "articles",
+                        "name": name,
+                        "trigger_type": "interval",
+                        "interval_minutes": interval_minutes,
+                        "articles_per_run": articles_per_run,
+                        "language": language,
+                        "tone": tone,
+                        "word_count_target": word_count_target,
+                        "enabled": True,
+                    }
+                    out, e = api_post("/scheduler/rules", json=payload)
+                    if e:
+                        st.error(e)
+                    else:
+                        st.toast("Article rule created.")
+                        st.rerun()
 
     with tab_jobs:
         st.subheader("Scheduled jobs")
         if not jobs:
             st.info("No scheduled jobs.")
         else:
-            for j in jobs:
-                t = j.get("type", "unknown")
-                rid = j.get("article_id") or j.get("keyword_id") or j.get("rule_id") or "—"
-                run_at = j.get("run_at") or j.get("next_run_time")
-                c1, c2 = st.columns([4, 1])
-                with c1:
-                    st.markdown(f"**{t}** · Target `{rid}` · {format_short_date(run_at) if run_at else '—'}")
-                with c2:
-                    if st.button("Cancel", key=f"cancel_{j.get('id')}"):
-                        ok, e = api_delete(f"/scheduler/jobs/{j['id']}")
-                        if e:
-                            st.error(e)
-                        else:
-                            st.toast("Job cancelled.")
-                            st.rerun()
-                st.divider()
+            df_jobs = pd.DataFrame([
+                {
+                    "Job ID": j.get("id", ""),
+                    "Type": j.get("type", "unknown"),
+                    "Target ID": j.get("article_id") or j.get("keyword_id") or j.get("rule_id") or "—",
+                    "Run at": format_short_date(j.get("run_at") or j.get("next_run_time")),
+                }
+                for j in jobs
+            ])
+            st.dataframe(df_jobs, use_container_width=True, hide_index=True)
+            st.caption("Select a job to cancel it.")
+            jsel, jbtn = st.columns([2, 1])
+            with jsel:
+                jopts = {f"#{j.get('id')} {j.get('type','')} · {j.get('article_id') or j.get('keyword_id') or j.get('rule_id')} · {format_short_date(j.get('run_at') or j.get('next_run_time'))}": j.get("id") for j in jobs}
+                j_sel_label = st.selectbox("Job", list(jopts.keys()), key="job_sel", label_visibility="collapsed")
+                j_id = jopts.get(j_sel_label) if j_sel_label else None
+            with jbtn:
+                if st.button("Cancel job", key="job_cancel_btn", disabled=not j_id):
+                    ok, e = api_delete(f"/scheduler/jobs/{j_id}")
+                    if e:
+                        st.error(e)
+                    else:
+                        st.toast("Job cancelled.")
+                        st.rerun()
 
     with tab_system:
         st.subheader("Scheduler status")
@@ -581,12 +859,10 @@ def main():
     st.markdown(
         """
         <style>
-        /* Sidebar: current selection and spacing */
-        [data-testid="stSidebar"] [role="radiogroup"] label { padding: 0.5rem 0.75rem; border-radius: 0.5rem; margin-bottom: 0.2rem; }
-        [data-testid="stSidebar"] [role="radiogroup"] label:hover { background: rgba(151,166,195,0.12); }
-        [data-testid="stSidebar"] [role="radiogroup"] label div:first-child { font-weight: 500; }
         /* Main content top padding */
         .block-container { padding-top: 1.5rem; }
+        /* Sidebar nav buttons full width */
+        [data-testid="stSidebar"] .stButton button { width: 100%; justify-content: center; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -603,14 +879,21 @@ def main():
         st.sidebar.error("Backend unreachable")
     st.sidebar.caption(BACKEND_URL)
     st.sidebar.markdown("---")
-    st.sidebar.markdown("**Content** · **System**")
-    page = st.sidebar.radio(
-        "Navigation",
-        ["📄 Articles", "🔑 Keywords", "📅 Calendar", "📊 Token usage", "⚙️ AI settings"],
-        label_visibility="collapsed",
-    )
-    page_map = {"📄 Articles": "articles", "🔑 Keywords": "keywords", "📅 Calendar": "calendar", "📊 Token usage": "usage", "⚙️ AI settings": "settings"}
-    current = page_map.get(page, "articles")
+    st.sidebar.markdown("**Navigation**")
+    if "nav_page" not in st.session_state:
+        st.session_state["nav_page"] = "articles"
+    nav_items = [
+        ("Articles", "articles"),
+        ("Keywords", "keywords"),
+        ("Calendar", "calendar"),
+        ("Token usage", "usage"),
+        ("AI settings", "settings"),
+    ]
+    for label, page_id in nav_items:
+        if st.sidebar.button(label, key=f"nav_{page_id}", use_container_width=True, type="primary" if st.session_state["nav_page"] == page_id else "secondary"):
+            st.session_state["nav_page"] = page_id
+            st.rerun()
+    current = st.session_state["nav_page"]
     if current == "articles":
         page_articles()
     elif current == "keywords":

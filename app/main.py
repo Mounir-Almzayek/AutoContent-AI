@@ -4,12 +4,14 @@ See docs/05_API_DESIGN.md.
 """
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from sqlalchemy import select
 
 from app.database import init_db, SessionLocal
+from services.openrouter_service import OpenRouterError
 from models.schedule_rule import ScheduleRule
 from scheduler.publisher import add_rule_job, get_scheduler, shutdown_scheduler
 from api.routes_articles import router as articles_router
@@ -50,6 +52,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(OpenRouterError)
+def openrouter_error_handler(_request: Request, exc: OpenRouterError):
+    """Return 429 when rate-limited, 502 for other OpenRouter errors."""
+    msg = str(exc)
+    status = 429 if "429" in msg or "rate" in msg.lower() else 502
+    return JSONResponse(
+        status_code=status,
+        content={"detail": msg, "error": "openrouter"},
+    )
+
 
 PREFIX = "/api/v1"
 app.include_router(articles_router, prefix=PREFIX)

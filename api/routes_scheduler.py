@@ -89,7 +89,13 @@ def list_rules(db: Session = Depends(get_db)):
 @router.post("/rules", response_model=ScheduleRuleResponse)
 def create_rule(body: ScheduleRuleCreate, db: Session = Depends(get_db)):
     """Create a recurring schedule rule and register its job."""
-    rule = ScheduleRule(**body.model_dump(exclude_unset=True))
+    data = body.model_dump(exclude_unset=True)
+    if data.get("rule_type") == "articles":
+        data["keyword_filter"] = "all_pending"
+        data["publish_behavior"] = "immediate"
+        data.pop("keyword_ids", None)
+        data["publish_delay_minutes"] = None
+    rule = ScheduleRule(**data)
     db.add(rule)
     db.commit()
     db.refresh(rule)
@@ -114,6 +120,12 @@ def update_rule(rule_id: int, body: ScheduleRuleUpdate, db: Session = Depends(ge
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
     data = body.model_dump(exclude_unset=True)
+    if rule.rule_type == "articles":
+        data.pop("keyword_filter", None)
+        data.pop("keyword_ids", None)
+        data["keyword_filter"] = "all_pending"
+        data["publish_behavior"] = "immediate"
+        data["publish_delay_minutes"] = None
     for k, v in data.items():
         setattr(rule, k, v)
     db.commit()
