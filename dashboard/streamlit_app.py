@@ -1,6 +1,6 @@
 """
 Streamlit Dashboard: Content Calendar, Keywords, Articles, Token Usage, AI Settings.
-See docs/06_DASHBOARD_SPEC.md. Connects to FastAPI backend at BACKEND_URL.
+See docs/dashboard/spec.md. Connects to FastAPI backend at BACKEND_URL.
 """
 import os
 from datetime import datetime, timezone, timedelta

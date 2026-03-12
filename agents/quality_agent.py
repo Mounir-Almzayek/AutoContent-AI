@@ -1,6 +1,6 @@
 """
 Quality Checker Agent: evaluates readability, structure, keyword density, SEO and quality scores.
-See docs/02_AI_AGENTS_SPEC.md § 4.
+See docs/architecture/ai-agents.md.
 """
 import json
 import logging

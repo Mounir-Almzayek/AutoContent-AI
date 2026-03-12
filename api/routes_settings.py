@@ -1,6 +1,6 @@
 """
 AI settings: default model + per-agent model overrides. Each agent can use a different model.
-See docs/05_API_DESIGN.md and docs/08_OPENROUTER_INTEGRATION.md.
+See docs/api/design.md and docs/integration/openrouter.md.
 """
 from fastapi import APIRouter
 

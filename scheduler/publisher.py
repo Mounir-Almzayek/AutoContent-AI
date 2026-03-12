@@ -1,6 +1,6 @@
 """
 APScheduler: schedule publish, one-time generation, and recurring generation jobs.
-See docs/10_SCHEDULER_SPEC.md and docs/12_CONTENT_CALENDAR_DESIGN.md.
+See docs/integration/scheduler.md and docs/dashboard/spec.md.
 """
 import json
 import logging

@@ -1,0 +1,38 @@
+# AutoContent AI: Backend (FastAPI) + Dashboard (Streamlit)
+# Create .env from .env.example and set OPENROUTER_API_KEY (and optional WORDPRESS_*) before running.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # Persist SQLite in a volume; override if your .env uses default path
+      - DATABASE_URL=sqlite:////data/content.db
+    volumes:
+      - backend_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    ports:
+      - "8501:8501"
+    env_file: .env
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  backend_data:

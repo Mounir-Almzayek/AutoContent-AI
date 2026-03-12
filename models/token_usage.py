@@ -1,6 +1,6 @@
 """
 Token usage model: DB table and Pydantic schemas for LLM usage tracking.
-See docs/07_DATA_MODELS.md § 4 and docs/08_OPENROUTER_INTEGRATION.md.
+See docs/data/models.md and docs/integration/openrouter.md.
 """
 from datetime import datetime
 from decimal import Decimal

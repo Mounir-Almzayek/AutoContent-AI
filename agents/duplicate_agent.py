@@ -1,6 +1,6 @@
 """
 Duplication Checker Agent: compares new article with existing ones (by title/snippet) via LLM.
-See docs/02_AI_AGENTS_SPEC.md § 5.
+See docs/architecture/ai-agents.md.
 """
 import json
 import logging

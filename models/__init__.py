@@ -1,5 +1,5 @@
 """
-Data models (DB + Pydantic). See docs/07_DATA_MODELS.md.
+Data models (DB + Pydantic). See docs/data/models.md.
 """
 from models.base import Base
 from models.article import Article, ArticleCreate, ArticleUpdate, ArticleResponse, ArticleBase

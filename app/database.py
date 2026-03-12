@@ -1,7 +1,7 @@
 """
 Database connection, engine, and session factory.
 Import all models so that Base.metadata registers every table before create_all().
-See docs/07_DATA_MODELS.md.
+See docs/data/models.md.
 """
 from typing import Generator
 

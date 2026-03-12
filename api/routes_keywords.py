@@ -1,5 +1,5 @@
 """
-Keywords CRUD, import, and trend discovery. See docs/05_API_DESIGN.md.
+Keywords CRUD, import, and trend discovery. See docs/api/design.md.
 """
 from typing import Optional
 

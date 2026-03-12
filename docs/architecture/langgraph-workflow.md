@@ -1,6 +1,6 @@
-# 03 — تصميم LangGraph Workflow
+# LangGraph Workflow Design
 
-## 1. مخطط الـ Graph
+## 1. Graph Diagram
 
 ```
                     ┌─────────────┐
@@ -63,55 +63,54 @@
 
 ---
 
-## 2. حالة الـ Graph (State)
+## 2. Graph State
 
-يُقترح استخدام **State** موحّد يمر عبر كل العقد. الحقول المقترحة:
+A single **State** object is passed through all nodes. Suggested fields:
 
-| الحقل | النوع | الوصف |
-|-------|--------|--------|
-| `keyword` | str | الكلمة المفتاحية المدخلة |
-| `keyword_analysis` | dict | مخرجات Keyword Agent |
-| `brief` | dict | مخرجات Content Brief Agent |
-| `content` | str | نص المقال (خام أو محسّن) |
-| `quality_result` | dict | مخرجات Quality Checker |
-| `is_duplicate` | bool | نتيجة Duplicate Checker |
-| `duplicate_similarity` | float | أعلى تشابه مع مقال سابق |
-| `seo_result` | dict | مخرجات SEO Optimizer |
-| `article_id` | str/int | معرف المقال بعد الحفظ (إن وُجد) |
-| `error` | str | رسالة خطأ إن فشلت أي عقدة |
-| `current_node` | str | اسم العقدة الحالية (للتتبع) |
-
----
-
-## 3. التفرع الشرطي (Conditional Edges)
-
-- **بعد duplicate_check:**  
-  - إذا `is_duplicate == True` → الانتقال إلى عقدة **reject** (أو إعادة المحاولة بكلمة مختلفة حسب التصميم).  
-  - إذا `is_duplicate == False` → الانتقال إلى **seo_optimizer**.
-
-- **بعد quality_check (اختياري):**  
-  - إذا `quality_score` أقل من حد معين → يمكن إما إعادة التوليد أو المتابعة مع تحذير (حسب المنتج).
+| Field | Type | Description |
+|-------|------|-------------|
+| `keyword` | str | Input keyword |
+| `keyword_analysis` | dict | Keyword Agent output |
+| `brief` | dict | Content Brief Agent output |
+| `content` | str | Article text (raw or optimized) |
+| `quality_result` | dict | Quality Checker output |
+| `is_duplicate` | bool | Duplicate Checker result |
+| `duplicate_similarity` | float | Highest similarity to existing article |
+| `seo_result` | dict | SEO Optimizer output |
+| `article_id` | str/int | Article ID after save (if any) |
+| `error` | str | Error message if any node fails |
+| `current_node` | str | Current node name (for tracing) |
 
 ---
 
-## 4. الملف المسؤول عن الـ Graph
+## 3. Conditional Edges
 
-| الملف | المسؤولية |
-|-------|-----------|
-| `graphs/content_generation_graph.py` | تعريف الـ State، إضافة العقد، تعريف الـ edges (العادية والشرطية)، بناء الـ CompiledGraph وتصديره |
+- **After duplicate_check:**
+  - If `is_duplicate == True` → go to **reject** (or retry with different keyword per design).
+  - If `is_duplicate == False` → go to **seo_optimizer**.
 
----
-
-## 5. استدعاء الـ Graph من الـ Backend
-
-- الـ Backend (FastAPI) يستدعي دالة مثل:  
-  `run_content_generation(keyword, options)`.
-- الدالة تُنشئ الـ graph (أو تستخدم instance مُعد مسبقاً)، وتستدعي `graph.invoke(initial_state)`.
-- النتيجة النهائية (بما فيها `article_id` أو `error`) تُعاد إلى الـ API.
+- **After quality_check (optional):**
+  - If `quality_score` is below a threshold → either regenerate or continue with a warning (product decision).
 
 ---
 
-## 6. التعامل مع الأخطاء
+## 4. Graph Definition File
 
-- أي عقدة يمكن أن تضع `error` في الـ State وتوقف التقدم (عقدة نهائية "failure").
-- إعادة المحاولة (retry) يمكن تنفيذها على مستوى استدعاء LLM داخل الـ Agent أو على مستوى العقدة حسب السياسة المختارة.
+| File | Responsibility |
+|------|-----------------|
+| `graphs/content_generation_graph.py` | Define State, add nodes, define edges (normal and conditional), build and export CompiledGraph |
+
+---
+
+## 5. Invoking the Graph from the Backend
+
+- The backend (FastAPI) calls a function such as `run_content_generation(keyword, options)`.
+- That function creates the graph (or uses a pre-built instance) and calls `graph.invoke(initial_state)`.
+- The final result (including `article_id` or `error`) is returned to the API.
+
+---
+
+## 6. Error Handling
+
+- Any node can set `error` in State and stop progress (final "failure" node).
+- Retry can be implemented at the LLM-call level inside the agent or at the node level, depending on policy.

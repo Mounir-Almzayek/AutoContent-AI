@@ -1,6 +1,6 @@
 """
 WordPress REST API: publish posts and optional categories/tags.
-See docs/09_WORDPRESS_INTEGRATION.md.
+See docs/integration/wordpress.md.
 """
 import base64
 import logging

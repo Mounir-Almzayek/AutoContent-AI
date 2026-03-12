@@ -1,7 +1,7 @@
 """
 Trend Content Discovery Agent: discovers trending topics via web search, extracts keywords,
 and produces article ideas ready for the content generation pipeline.
-See docs/02_AI_AGENTS_SPEC.md (Trend Discovery).
+See docs/architecture/ai-agents.md and docs/api/design.md (trend-discovery).
 """
 import json
 import logging

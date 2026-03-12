@@ -1,7 +1,7 @@
 """
 Article Generator Agent: produces full article text from the content brief.
 Uses web search for recent, real-world context when available.
-See docs/02_AI_AGENTS_SPEC.md § 3.
+See docs/architecture/ai-agents.md.
 """
 import logging
 from typing import Any, Optional

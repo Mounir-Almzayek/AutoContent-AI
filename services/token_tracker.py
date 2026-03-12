@@ -1,6 +1,6 @@
 """
 Token usage logging and aggregation for LLM calls.
-See docs/08_OPENROUTER_INTEGRATION.md § 4 and docs/07_DATA_MODELS.md.
+See docs/integration/openrouter.md and docs/data/models.md.
 """
 from datetime import datetime, timedelta
 from typing import Optional

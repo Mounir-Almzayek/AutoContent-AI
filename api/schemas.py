@@ -1,5 +1,5 @@
 """
-API request/response schemas (non-DB). See docs/05_API_DESIGN.md and docs/07_DATA_MODELS.md.
+API request/response schemas (non-DB). See docs/api/design.md and docs/data/models.md.
 """
 from typing import Any, Optional
 

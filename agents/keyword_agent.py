@@ -1,6 +1,6 @@
 """
 Keyword Agent: analyzes a keyword and returns topic, search intent, and related keywords.
-See docs/02_AI_AGENTS_SPEC.md § 1.
+See docs/architecture/ai-agents.md.
 """
 import json
 import logging

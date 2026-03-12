@@ -1,1 +1,1 @@
-# Scheduler (APScheduler) — see docs/10_SCHEDULER_SPEC.md
+# Scheduler (APScheduler) — see docs/integration/scheduler.md

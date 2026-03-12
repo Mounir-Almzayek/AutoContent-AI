@@ -1,49 +1,88 @@
-# نظام توليد ونشر المقالات بالذكاء الاصطناعي
+# AutoContent AI
 
-نظام متكامل لتوليد مقالات مدعومة بالـ AI، مراجعتها، وتحسينها ثم نشرها إلى WordPress.
+AI-powered content generation, review, and publishing to WordPress.
 
-## المعمارية
+## Introduction
 
-- **Dashboard:** Streamlit — إدارة الكلمات المفتاحية، الجدولة، الإعدادات، مراقبة التوكينز.
-- **Backend:** FastAPI — API، إدارة DB، تشغيل الـ AI workflow، جدولة النشر.
-- **AI Engine:** LangGraph + OpenRouter — pipeline من العقد (Keyword → Brief → Article → Quality → Duplicate → SEO).
-- **النشر:** WordPress REST API.
+AutoContent AI is an integrated system that manages keywords, runs an AI content pipeline (keyword analysis → brief → article → quality check → duplicate check → SEO optimization), stores articles in a database, schedules generation and publishing, and publishes to WordPress via the REST API. You manage keywords, scheduling, and settings and monitor token usage through a Streamlit dashboard that talks to a FastAPI backend.
 
-## هيكل المشروع
+## Screenshots
+
+| Dashboard — Articles | Keywords & trend discovery |
+|---------------------|-----------------------------|
+| ![Articles](docs/screenshot/Screenshot%202026-03-12%20151520.png) | ![Keywords](docs/screenshot/Screenshot%202026-03-12%20145515.png) |
+
+| Token usage | AI Settings | Content calendar |
+|-------------|-------------|-------------------|
+| ![Article preview](docs/screenshot/Screenshot%202026-03-12%20151548.png) | ![Settings](docs/screenshot/Screenshot%202026-03-12%20153157.png) | ![Calendar](docs/screenshot/Screenshot%202026-03-12%20151726.png) |
+
+## Tech stack
+
+- **Dashboard:** Streamlit  
+- **Backend:** FastAPI  
+- **AI workflow:** LangGraph, OpenRouter (LLM)  
+- **Database:** SQLite (dev) / PostgreSQL (production)  
+- **Scheduling:** APScheduler  
+- **Publishing:** WordPress REST API  
+
+## Project structure
 
 ```
-├── app/           # نقطة الدخول، config، database
-├── api/            # مسارات FastAPI
-├── agents/         # عقد الـ AI (keyword, brief, article, quality, duplicate, seo)
-├── graphs/         # LangGraph workflow
-├── services/       # OpenRouter، WordPress، Token Tracker
-├── scheduler/      # APScheduler للنشر والتوليد
-├── dashboard/      # تطبيق Streamlit
-├── models/         # نماذج البيانات
-└── docs/           # الوثائق والخطط
+├── app/           # Entry point, config, database
+├── api/           # FastAPI routes
+├── agents/        # AI agents (keyword, brief, article, quality, duplicate, seo, trend)
+├── graphs/        # LangGraph workflow
+├── services/      # OpenRouter, WordPress, token tracker
+├── scheduler/     # APScheduler jobs and rules
+├── dashboard/     # Streamlit app
+├── models/        # Data models
+└── docs/          # Documentation
 ```
 
-## الوثائق
+## Getting started
 
-جميع الخطط والمواصفات في مجلد **docs/**:
+### 1. Environment
 
-- [فهرس الوثائق](docs/README.md)
-- [نظرة المعمارية](docs/01_ARCHITECTURE_OVERVIEW.md)
-- [مواصفات الـ Agents](docs/02_AI_AGENTS_SPEC.md)
-- [LangGraph Workflow](docs/03_LANGGRAPH_WORKFLOW.md)
-- [المراحل والجدول الزمني](docs/04_PHASES_AND_ROADMAP.md)
-- [تصميم API](docs/05_API_DESIGN.md)
-- [مواصفات Dashboard](docs/06_DASHBOARD_SPEC.md)
-- [نماذج البيانات](docs/07_DATA_MODELS.md)
-- [OpenRouter](docs/08_OPENROUTER_INTEGRATION.md)
-- [WordPress](docs/09_WORDPRESS_INTEGRATION.md)
-- [الجدولة](docs/10_SCHEDULER_SPEC.md)
+Copy `.env.example` to `.env` and set:
 
-## البدء
+- `OPENROUTER_API_KEY` — required for AI generation  
+- `BACKEND_URL` — e.g. `http://localhost:8000` (for the dashboard)  
+- Optional: `WORDPRESS_*` for publishing to WordPress  
 
-1. نسخ `.env.example` إلى `.env` وتعبئة القيم.
-2. تثبيت الاعتماديات: `pip install -r requirements.txt`
-3. تشغيل الـ Backend: من جذر المشروع (وفق تهيئة المشروع لاحقاً).
-4. تشغيل الـ Dashboard: `streamlit run dashboard/streamlit_app.py`
+### 2. Install and run (local)
 
-التطوير حسب المراحل الموضحة في **docs/04_PHASES_AND_ROADMAP.md**.
+```bash
+pip install -r requirements.txt
+```
+
+**Terminal 1 — Backend:**
+
+```bash
+uvicorn app.main:app --reload
+```
+
+**Terminal 2 — Dashboard:**
+
+```bash
+streamlit run dashboard/streamlit_app.py
+```
+
+- API: http://localhost:8000 (docs: http://localhost:8000/docs)  
+- Dashboard: http://localhost:8501  
+
+### 3. Run with Docker
+
+Create `.env` from `.env.example` first, then:
+
+```bash
+docker-compose up --build
+```
+
+- Dashboard: http://localhost:8501  
+- API: http://localhost:8000  
+
+The dashboard container uses `BACKEND_URL=http://backend:8000` so it can reach the API inside the stack.
+
+## Documentation
+
+Full technical documentation (architecture, API, dashboard, data models, integrations) is in **[docs/README.md](docs/README.md)**.

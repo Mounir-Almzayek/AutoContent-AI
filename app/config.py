@@ -1,6 +1,6 @@
 """
 Application configuration loaded from environment variables.
-See docs/08_OPENROUTER_INTEGRATION.md and docs/09_WORDPRESS_INTEGRATION.md.
+See docs/integration/openrouter.md and docs/integration/wordpress.md.
 """
 from functools import lru_cache
 from typing import Optional

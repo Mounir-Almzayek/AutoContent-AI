@@ -1,6 +1,6 @@
 """
 Content generation LangGraph workflow: Keyword → Brief → Article → Quality → Duplicate → SEO → Save.
-See docs/03_LANGGRAPH_WORKFLOW.md.
+See docs/architecture/langgraph-workflow.md.
 """
 from typing import Any, Literal, Optional, TypedDict
 

@@ -1,1 +1,1 @@
-# Streamlit dashboard — see docs/06_DASHBOARD_SPEC.md
+# Streamlit dashboard — see docs/dashboard/spec.md

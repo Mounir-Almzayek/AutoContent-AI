@@ -1,5 +1,5 @@
 """
-LangGraph workflows. See docs/03_LANGGRAPH_WORKFLOW.md.
+LangGraph workflows. See docs/architecture/langgraph-workflow.md.
 """
 from graphs.content_generation_graph import (
     ContentGenerationState,

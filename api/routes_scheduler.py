@@ -1,5 +1,5 @@
 """
-Scheduler jobs, stats, recurring rules, and calendar. See docs/10_SCHEDULER_SPEC.md and docs/12_CONTENT_CALENDAR_DESIGN.md.
+Scheduler jobs, stats, recurring rules, and calendar. See docs/integration/scheduler.md and docs/dashboard/spec.md.
 """
 from datetime import datetime, timedelta, timezone
 from typing import Optional

@@ -1,6 +1,6 @@
 """
 Articles CRUD, generate pipeline, and publish (stub).
-See docs/05_API_DESIGN.md.
+See docs/api/design.md.
 """
 from typing import Optional
 

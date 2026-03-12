@@ -2,7 +2,7 @@
 OpenRouter API client for LLM chat completions.
 Returns content and usage dict for token tracking.
 Retries on 429 (rate limit) with backoff.
-See docs/08_OPENROUTER_INTEGRATION.md.
+See docs/integration/openrouter.md.
 """
 import logging
 import time

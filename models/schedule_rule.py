@@ -1,6 +1,6 @@
 """
 Recurring schedule rule for automated article generation.
-See docs/12_CONTENT_CALENDAR_DESIGN.md.
+See docs/integration/scheduler.md and docs/dashboard/spec.md.
 """
 from datetime import datetime
 from typing import Optional

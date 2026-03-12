@@ -1,5 +1,5 @@
 """
-AI agents (LangGraph nodes). See docs/02_AI_AGENTS_SPEC.md.
+AI agents (LangGraph nodes). See docs/architecture/ai-agents.md.
 """
 from agents.keyword_agent import run_keyword_analyzer
 from agents.brief_agent import run_brief_agent

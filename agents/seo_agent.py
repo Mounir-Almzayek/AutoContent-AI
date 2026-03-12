@@ -1,6 +1,6 @@
 """
 SEO Optimizer Agent: improves meta title, meta description, and optional FAQ schema from article + brief.
-See docs/02_AI_AGENTS_SPEC.md § 6.
+See docs/architecture/ai-agents.md.
 """
 import json
 import logging

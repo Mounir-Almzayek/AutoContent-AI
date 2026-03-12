@@ -1,6 +1,6 @@
 """
 Article model: DB table and Pydantic schemas.
-See docs/07_DATA_MODELS.md § 2.
+See docs/data/models.md.
 """
 from datetime import datetime
 from typing import Optional

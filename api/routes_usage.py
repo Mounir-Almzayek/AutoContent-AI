@@ -1,5 +1,5 @@
 """
-Token usage and aggregation. See docs/05_API_DESIGN.md.
+Token usage and aggregation. See docs/api/design.md.
 """
 from datetime import datetime
 from typing import Optional

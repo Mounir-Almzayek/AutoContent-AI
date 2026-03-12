@@ -1,6 +1,6 @@
 """
 Content Brief Agent: builds article outline (title, H1, H2, H3, FAQ, tone) from keyword analysis.
-See docs/02_AI_AGENTS_SPEC.md § 2.
+See docs/architecture/ai-agents.md.
 """
 import json
 import logging
